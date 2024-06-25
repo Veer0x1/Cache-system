@@ -12,7 +12,12 @@ import (
 	"github.com/codecrafters-io/redis-starter-go/resp"
 )
 
-var store = make(map[string]string) // In-memory key value
+type StoredData struct {
+	Data     string
+	ExpireAt int64
+}
+
+var store = make(map[string]StoredData) // In-memory key value
 
 func startServer() {
 	l, err := net.Listen("tcp", "0.0.0.0:6379")
@@ -77,21 +82,49 @@ func handleConnection(conn net.Conn) {
 					conn.Write([]byte("-Error: ECHO command requires an argument\r\n"))
 				}
 			case "SET":
-				if len(parts)>=3 {
+				if len(parts) >= 3 {
 					key := parts[1]
-					value := strings.Join(parts[2:]," ")
-					store[key] = value
-					conn.Write(codec.OK())
-				}else{
-					conn.Write(codec.ErrorResponse("SET command require a key and a value"))
+					expiryIndex := len(parts) // Assume no optional arguments by default
+
+					// Check for "PX" argument and adjust expiryIndex accordingly.
+					for i, part := range parts {
+						if strings.ToUpper(part) == "PX" && i+1 < len(parts) {
+							expiryIndex = i
+							break
+						}
+					}
+
+					// Extract the value correctly by joining parts up to the expiryIndex.
+					value := strings.Join(parts[2:expiryIndex], " ")
+					expiry := int64(0) // No expiry by default
+
+					// Parse expiry time if "PX" argument is present.
+					if expiryIndex != len(parts) {
+						expiryMillis, err := strconv.ParseInt(parts[expiryIndex+1], 10, 64)
+						if err == nil {
+							expiry = time.Now().UnixNano()/1e6 + expiryMillis // Current time in ms + expiry duration
+						}
+					}
+
+					// Store the key-value with optional expiry.
+					store[key] = StoredData{Data: value, ExpireAt: expiry}
+					conn.Write([]byte("+OK\r\n"))
+				} else {
+					conn.Write([]byte("-Error: SET command requires at least a key and a value\r\n"))
 				}
 			case "GET":
 				if len(parts) == 2 {
 					key := parts[1]
-					value,exists := store[key]
+					valueWithExpiry, exists := store[key]
 					if exists {
-						conn.Write(codec.EncodeBulkString(value))
-					}else {
+						// Check if the key has expired.
+						if valueWithExpiry.ExpireAt != 0 && time.Now().UnixNano()/1e6 > valueWithExpiry.ExpireAt {
+							delete(store, key)            // Remove expired key.
+							conn.Write([]byte("$-1\r\n")) // Return null bulk string.
+						} else {
+							conn.Write(codec.EncodeBulkString(valueWithExpiry.Data))
+						}
+					} else {
 						conn.Write([]byte("$-1\r\n"))
 					}
 				} else {
