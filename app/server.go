@@ -13,7 +13,7 @@ import (
 	"github.com/codecrafters-io/redis-starter-go/resp"
 )
 
-var port = flag.Int("port",6379,"Port number for redis server")
+var port = flag.Int("port", 6379, "Port number for redis server")
 
 type StoredData struct {
 	Data     string
@@ -23,7 +23,7 @@ type StoredData struct {
 var store = make(map[string]StoredData) // In-memory key value
 
 func startServer(port int) {
-	l, err := net.Listen("tcp", fmt.Sprintf(":%d",port))
+	l, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
 		fmt.Println("Failed to bind the port 6379")
 		os.Exit(1)
@@ -132,6 +132,21 @@ func handleConnection(conn net.Conn) {
 					}
 				} else {
 					conn.Write(codec.ErrorResponse("GET command require a key"))
+				}
+			case "INFO":
+				if len(parts) == 2 && parts[1] == "replication" {
+					// Since only the role key is needed for this stage, construct the response.
+					response := "role:master\r\n" // Ensure to include \r\n for proper formatting.
+
+					// Encode the response as a Bulk string.
+					// Assuming codec.EncodeBulkString properly encodes a string as a Redis Bulk string.
+					encodedResponse := codec.EncodeBulkString(response)
+
+					// Send the encoded response back to the client.
+					conn.Write([]byte(encodedResponse))
+				} else {
+					// Optionally handle other sections or provide a generic response.
+					conn.Write(codec.ErrorResponse("Unsupported INFO section"))
 				}
 			default:
 				conn.Write([]byte("-Error: Unknown command\r\n"))
