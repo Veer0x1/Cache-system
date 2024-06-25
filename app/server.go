@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"io"
 	"net"
@@ -12,6 +13,8 @@ import (
 	"github.com/codecrafters-io/redis-starter-go/resp"
 )
 
+var port = flag.Int("port",6379,"Port number for redis server")
+
 type StoredData struct {
 	Data     string
 	ExpireAt int64
@@ -19,8 +22,8 @@ type StoredData struct {
 
 var store = make(map[string]StoredData) // In-memory key value
 
-func startServer() {
-	l, err := net.Listen("tcp", "0.0.0.0:6379")
+func startServer(port int) {
+	l, err := net.Listen("tcp", fmt.Sprintf(":%d",port))
 	if err != nil {
 		fmt.Println("Failed to bind the port 6379")
 		os.Exit(1)
@@ -138,5 +141,6 @@ func handleConnection(conn net.Conn) {
 }
 
 func main() {
-	startServer()
+	flag.Parse()
+	startServer(*port)
 }

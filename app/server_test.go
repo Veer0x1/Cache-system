@@ -10,7 +10,7 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	go startServer()
+	go startServer(6379)
 	// Give the server time to start
 	time.Sleep(time.Second)
 
