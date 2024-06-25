@@ -1,17 +1,18 @@
 package main
 
 import (
-	// "bufio"
 	"fmt"
 	"io"
 	"net"
 	"os"
 	"strconv"
 	"strings"
-
-	// "strings"
 	"time"
+
+	"github.com/codecrafters-io/redis-starter-go/resp"
 )
+
+var store = make(map[string]string) // In-memory key value
 
 func startServer() {
 	l, err := net.Listen("tcp", "0.0.0.0:6379")
@@ -61,6 +62,8 @@ func handleConnection(conn net.Conn) {
 				}
 			}
 
+			codec := resp.RESPCodec{}
+
 			switch strings.ToUpper(parts[0]) {
 			case "PING":
 				conn.Write([]byte("+PONG\r\n"))
@@ -72,6 +75,27 @@ func handleConnection(conn net.Conn) {
 					conn.Write([]byte(response))
 				} else {
 					conn.Write([]byte("-Error: ECHO command requires an argument\r\n"))
+				}
+			case "SET":
+				if len(parts)>=3 {
+					key := parts[1]
+					value := strings.Join(parts[2:]," ")
+					store[key] = value
+					conn.Write(codec.OK())
+				}else{
+					conn.Write(codec.ErrorResponse("SET command require a key and a value"))
+				}
+			case "GET":
+				if len(parts) == 2 {
+					key := parts[1]
+					value,exists := store[key]
+					if exists {
+						conn.Write(codec.EncodeBulkString(value))
+					}else {
+						conn.Write([]byte("$-1\r\n"))
+					}
+				} else {
+					conn.Write(codec.ErrorResponse("GET command require a key"))
 				}
 			default:
 				conn.Write([]byte("-Error: Unknown command\r\n"))
