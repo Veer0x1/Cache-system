@@ -4,48 +4,49 @@ import (
 	"bufio"
 	"net"
 	"os"
+	"sync"
 	"testing"
 	"time"
 )
 
 func TestMain(m *testing.M) {
-    go startServer()
-    // Give the server time to start
-    time.Sleep(time.Second)
+	go startServer()
+	// Give the server time to start
+	time.Sleep(time.Second)
 
-    // Run the tests
-    code := m.Run()
+	// Run the tests
+	code := m.Run()
 
-    os.Exit(code)
+	os.Exit(code)
 }
 
-func TestHandleConnection(t *testing.T){
+func TestHandleConnection(t *testing.T) {
 
-	conn, err := net.Dial("tcp","localhost:6379")
-	if err!= nil{
-		t.Fatalf("Failed to connect to server: %v",err)
+	conn, err := net.Dial("tcp", "localhost:6379")
+	if err != nil {
+		t.Errorf("Failed to connect to server: %v", err)
 	}
 	defer conn.Close()
 
 	// Send a PING command
-	_,err = conn.Write([]byte("PING\r\n"))
-	if err!=nil{
-		t.Fatalf("Failed to write to server: %v",err)
+	_, err = conn.Write([]byte("PING\r\n"))
+	if err != nil {
+		t.Fatalf("Failed to write to server: %v", err)
 	}
 
 	// Read the response
 	scanner := bufio.NewScanner(conn)
 	if scanner.Scan() {
 		response := scanner.Text()
-		if response != "+PONG"{
-			t.Errorf("Expected '+PONG', got '%s'",response)
+		if response != "+PONG" {
+			t.Errorf("Expected '+PONG', got '%s'", response)
 		}
-	}else {
+	} else {
 		t.Fatalf("Failed to read from server")
 	}
 
-	if err := scanner.Err(); err !=nil {
-		t.Fatalf("Scanner error: %v",err)
+	if err := scanner.Err(); err != nil {
+		t.Fatalf("Scanner error: %v", err)
 	}
 }
 
@@ -82,4 +83,45 @@ func TestHandleMultiplePings(t *testing.T) {
 			t.Fatalf("Scanner error: %v", err)
 		}
 	}
+}
+
+func TestHandleMultipleUser(t *testing.T) {
+	userCount := 10
+	var wg sync.WaitGroup // synchronize multiple goroutines
+
+
+	// simulating 10 concurrent user using goroutines
+	for i := 0; i < userCount; i++ {
+		wg.Add(1)
+
+		go func() {
+			defer wg.Done()
+
+			conn, err := net.Dial("tcp", "localhost:6379")
+			if err != nil {
+				t.Errorf("Failed to connect to server: %v", err)
+			}
+			defer conn.Close()
+
+			_, err = conn.Write([]byte("PING\r\n"))
+			if err != nil {
+				t.Errorf("Failed to write to server: %v", err)
+			}
+
+			scanner := bufio.NewScanner(conn)
+			if scanner.Scan() {
+				response := scanner.Text()
+				if response != "+PONG" {
+					t.Errorf("Expected '+PONG', got '%s'", response)
+				}
+			} else {
+				t.Errorf("Failed to read from server")
+			}
+
+			if err := scanner.Err(); err != nil {
+				t.Errorf("Scanner error: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
 }

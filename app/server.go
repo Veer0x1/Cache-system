@@ -24,29 +24,25 @@ func startServer() {
 		}
 		go handleConnection(conn)
 	}
-	
 }
 
 func handleConnection(conn net.Conn) {
 	defer conn.Close()
-	//PING command
-	// conn.Write([]byte("+PONG\r\n"))
-	// conn.Close()
 
 	scanner := bufio.NewScanner(conn)
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.ToUpper(line) == "PING" {
-			_,err := conn.Write([]byte("+PONG\r\n"))
+			_, err := conn.Write([]byte("+PONG\r\n"))
 			if err != nil {
-				fmt.Println("Error sending PONG response: ",err.Error())
+				fmt.Println("Error sending PONG response: ", err.Error())
 				return
 			}
 		}
 	}
 
-	if err:= scanner.Err(); err!=nil {
-		fmt.Println("Error reading from connections: ",err.Error())
+	if err := scanner.Err(); err != nil {
+		fmt.Println("Error reading from connections: ", err.Error())
 	}
 }
 
