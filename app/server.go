@@ -14,6 +14,7 @@ import (
 )
 
 var port = flag.Int("port", 6379, "Port number for redis server")
+var serverRole = "master"
 
 type StoredData struct {
 	Data     string
@@ -136,7 +137,7 @@ func handleConnection(conn net.Conn) {
 			case "INFO":
 				if len(parts) == 2 && parts[1] == "replication" {
 					// Since only the role key is needed for this stage, construct the response.
-					response := "role:master\r\n" // Ensure to include \r\n for proper formatting.
+					response := fmt.Sprintf("role:%s\r\n",serverRole) // Ensure to include \r\n for proper formatting.
 
 					// Encode the response as a Bulk string.
 					// Assuming codec.EncodeBulkString properly encodes a string as a Redis Bulk string.
@@ -156,6 +157,10 @@ func handleConnection(conn net.Conn) {
 }
 
 func main() {
+	var replicaOf = flag.String("replicaof","","host and port of master server")
 	flag.Parse()
+	if *replicaOf != "" {
+		serverRole = "slave"
+	}
 	startServer(*port)
 }
