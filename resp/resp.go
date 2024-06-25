@@ -83,3 +83,30 @@ func (codec *RESPCodec) ErrorResponse(message string) ([]byte){
 func (codec *RESPCodec) EncodeBulkString(value string) ([]byte) {
     return []byte(fmt.Sprintf("$%d\r\n%s\r\n", len(value), value))
 }
+
+type KeyValuePair struct {
+	Key   string
+	Value interface{}
+}
+
+func (codec *RESPCodec) EncodeMultipleBulkStrings(pairs []KeyValuePair) ([]byte) {
+	var infoString string
+    for _, pair := range pairs {
+        // Convert the value to a string, regardless of its actual type
+        var valueStr string
+        switch v := pair.Value.(type) {
+        case string:
+            valueStr = v
+        case int, int64:
+            valueStr = fmt.Sprintf("%d", v)
+        default:
+            // Handle other types as needed, or skip unsupported types
+            continue
+        }
+        // Append the key-value pair to the info string, separated by a newline
+        infoString += pair.Key + ":" + valueStr + "\n"
+    }
+
+    // Encode the entire info string as a bulk string
+    return codec.EncodeBulkString(infoString)
+}

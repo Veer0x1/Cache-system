@@ -8,20 +8,26 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/codecrafters-io/redis-starter-go/resp"
 )
 
-var port = flag.Int("port", 6379, "Port number for redis server")
-var serverRole = "master"
+var (
+    serverRole       = "master"
+    port             = flag.Int("port", 6379, "server port")
+    replicaOf        = flag.String("replicaof", "", "host and port of master server")
+    masterReplID     = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb"
+    masterReplOffset = 0
+    store            = make(map[string]StoredData)
+    storeMutex       = sync.RWMutex{} // Mutex to protect the store map
+)
 
 type StoredData struct {
-	Data     string
-	ExpireAt int64
+    Data     string
+    ExpireAt int64
 }
-
-var store = make(map[string]StoredData) // In-memory key value
 
 func startServer(port int) {
 	l, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
@@ -136,15 +142,12 @@ func handleConnection(conn net.Conn) {
 				}
 			case "INFO":
 				if len(parts) == 2 && parts[1] == "replication" {
-					// Since only the role key is needed for this stage, construct the response.
-					response := fmt.Sprintf("role:%s\r\n",serverRole) // Ensure to include \r\n for proper formatting.
-
-					// Encode the response as a Bulk string.
-					// Assuming codec.EncodeBulkString properly encodes a string as a Redis Bulk string.
-					encodedResponse := codec.EncodeBulkString(response)
-
-					// Send the encoded response back to the client.
-					conn.Write([]byte(encodedResponse))
+					infoFields := []resp.KeyValuePair{
+						{Key: "role",Value: serverRole},
+						{Key: "master_replid", Value: masterReplID},
+						{Key: "master_repl_offset", Value: masterReplOffset},
+					}
+					conn.Write(codec.EncodeMultipleBulkStrings(infoFields))
 				} else {
 					// Optionally handle other sections or provide a generic response.
 					conn.Write(codec.ErrorResponse("Unsupported INFO section"))
@@ -157,7 +160,6 @@ func handleConnection(conn net.Conn) {
 }
 
 func main() {
-	var replicaOf = flag.String("replicaof","","host and port of master server")
 	flag.Parse()
 	if *replicaOf != "" {
 		serverRole = "slave"
