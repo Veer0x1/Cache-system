@@ -4,32 +4,35 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/codecrafters-io/redis-starter-go/resp"
 )
 
 var (
-    serverRole       = "master"
-    port             = flag.Int("port", 6379, "server port")
-    replicaOf        = flag.String("replicaof", "", "host and port of master server")
-    masterReplID     = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb"
-    masterReplOffset = 0
-    store            = make(map[string]StoredData)
-    storeMutex       = sync.RWMutex{} // Mutex to protect the store map
+	serverRole       = "master"
+	port             = flag.Int("port", 6379, "server port")
+	replicaOf        = flag.String("replicaof", "", "host and port of master server")
+	masterReplID     = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb"
+	masterReplOffset = 0
+	store            = make(map[string]StoredData)
+	masterPort       = "6379"
+	masterHost       = "localhost"
+	// storeMutex       = sync.RWMutex{} // Mutex to protect the store map
 )
 
 type StoredData struct {
-    Data     string
-    ExpireAt int64
+	Data     string
+	ExpireAt int64
 }
 
 func startServer(port int) {
+	fmt.Println("I was here")
 	l, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 	if err != nil {
 		fmt.Println("Failed to bind the port 6379")
@@ -43,6 +46,7 @@ func startServer(port int) {
 			fmt.Println("Error accepting connection:", err.Error())
 			os.Exit(1)
 		}
+
 		go handleConnection(conn)
 	}
 }
@@ -143,7 +147,7 @@ func handleConnection(conn net.Conn) {
 			case "INFO":
 				if len(parts) == 2 && parts[1] == "replication" {
 					infoFields := []resp.KeyValuePair{
-						{Key: "role",Value: serverRole},
+						{Key: "role", Value: serverRole},
 						{Key: "master_replid", Value: masterReplID},
 						{Key: "master_repl_offset", Value: masterReplOffset},
 					}
@@ -159,10 +163,44 @@ func handleConnection(conn net.Conn) {
 	}
 }
 
+func connectToMasterAndReplicate() {
+	masterAddress := fmt.Sprintf("%s:%s", masterHost, masterPort)
+	masterConn, err := net.Dial("tcp", masterAddress)
+	if err != nil {
+		fmt.Println("Failed to connect to the master:", err)
+	}
+	defer masterConn.Close()
+
+	pingCommand := "*1\r\n$4\r\nPING\r\n"
+	_, err = masterConn.Write([]byte(pingCommand))
+	if err != nil {
+		fmt.Println("Failed to send PING to the master:", err)
+		return
+	}
+
+	// Read response from the master
+	buffer := make([]byte, 1024)
+	n, err := masterConn.Read(buffer)
+	if err != nil {
+		fmt.Println("Failed to read PING response from the master:", err)
+		return
+	}
+
+	fmt.Printf("Received response from master: %s\n", string(buffer[:n]))
+}
+
 func main() {
 	flag.Parse()
 	if *replicaOf != "" {
 		serverRole = "slave"
+		formattedReplicaOf := strings.Replace(*replicaOf, " ", ":", 1)
+		var err error
+		masterHost, masterPort, err = net.SplitHostPort(formattedReplicaOf)
+		if err != nil {
+			log.Fatalf("Failed to parse master address '%s' : %v", *replicaOf, err)
+		}
+
+		go connectToMasterAndReplicate()
 	}
 	startServer(*port)
 }
