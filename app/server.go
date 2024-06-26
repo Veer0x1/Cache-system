@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"flag"
 	"fmt"
 	"io"
@@ -158,8 +159,30 @@ func handleConnection(conn net.Conn) {
 			case "REPLCONF":
 				conn.Write(codec.OK())
 			case "PSYNC":
-				response := fmt.Sprintf("+FULLRESYNC %s 0\r\n",masterReplID)
-				conn.Write([]byte(response))
+				response := fmt.Sprintf("+FULLRESYNC %s 0\r\n", masterReplID)
+				_, err := conn.Write([]byte(response))
+				if err != nil {
+					log.Fatalf("Failed to send FULLRESYNC response: %v", err)
+				}
+
+				// Decode the base64-encoded empty RDB file
+				rdbBase64 := "UkVESVMwMDEx+glyZWRpcy12ZXIFNy4yLjD6CnJlZGlzLWJpdHPAQPoFY3RpbWXCbQi8ZfoIdXNlZC1tZW3CsMQQAPoIYW9mLWJhc2XAAP/wbjv+wP9aog=="
+				rdbBytes, err := base64.StdEncoding.DecodeString(rdbBase64)
+				if err != nil {
+					log.Fatalf("Failed to decode RDB file: %v", err)
+				}
+
+				// Send the encoded empty RDB file
+				rdbLength := len(rdbBytes)
+				rdbHeader := fmt.Sprintf("$%d\r\n", rdbLength)
+				_, err = conn.Write([]byte(rdbHeader))
+				if err != nil {
+					log.Fatalf("Failed to send RDB file header: %v", err)
+				}
+				_, err = conn.Write(rdbBytes)
+				if err != nil {
+					log.Fatalf("Failed to send RDB file contents: %v", err)
+				}
 			default:
 				conn.Write([]byte("-Error: Unknown command\r\n"))
 			}
@@ -190,7 +213,6 @@ func connectToMasterAndReplicate() {
 		return
 	}
 
-
 	replConfListeningPortCmd := fmt.Sprintf("*3\r\n$8\r\nREPLCONF\r\n$14\r\nlistening-port\r\n$4\r\n%s\r\n", *port)
 	_, err = masterConn.Write([]byte(replConfListeningPortCmd))
 	if err != nil {
@@ -218,7 +240,6 @@ func connectToMasterAndReplicate() {
 	if err != nil || !strings.Contains(string(buffer), "+OK\r\n") {
 		log.Fatalf("Failed to receive OK response for PSYNC command")
 	}
-
 
 	fmt.Printf("Received response from master: %s\n", string(buffer[:n]))
 }
