@@ -16,7 +16,7 @@ import (
 
 var (
 	serverRole       = "master"
-	port             = flag.Int("port", 6379, "server port")
+	port             = flag.String("port", "6379", "server port")
 	replicaOf        = flag.String("replicaof", "", "host and port of master server")
 	masterReplID     = "8371b4fb1155b71f4a04d3e1bc3e18c4a990aeeb"
 	masterReplOffset = 0
@@ -31,9 +31,8 @@ type StoredData struct {
 	ExpireAt int64
 }
 
-func startServer(port int) {
-	fmt.Println("I was here")
-	l, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+func startServer(port string) {
+	l, err := net.Listen("tcp", fmt.Sprintf(":%s", port))
 	if err != nil {
 		fmt.Println("Failed to bind the port 6379")
 		os.Exit(1)
@@ -156,6 +155,8 @@ func handleConnection(conn net.Conn) {
 					// Optionally handle other sections or provide a generic response.
 					conn.Write(codec.ErrorResponse("Unsupported INFO section"))
 				}
+			case "REPLCONF":
+				conn.Write(codec.OK())
 			default:
 				conn.Write([]byte("-Error: Unknown command\r\n"))
 			}
@@ -184,6 +185,29 @@ func connectToMasterAndReplicate() {
 	if err != nil {
 		fmt.Println("Failed to read PING response from the master:", err)
 		return
+	}
+
+
+	replConfListeningPortCmd := fmt.Sprintf("*3\r\n$8\r\nREPLCONF\r\n$14\r\nlistening-port\r\n$4\r\n%s\r\n", *port)
+	_, err = masterConn.Write([]byte(replConfListeningPortCmd))
+	if err != nil {
+		log.Fatalf("Failed to send REPLCONF listening-port command: %v", err)
+	}
+
+	_, err = masterConn.Read(buffer)
+	if err != nil || !strings.Contains(string(buffer), "+OK\r\n") {
+		log.Fatalf("Failed to receive OK response for REPLCONF listening-port command")
+	}
+
+	replConfCapaCmd := "*3\r\n$8\r\nREPLCONF\r\n$4\r\ncapa\r\n$6\r\npsync2\r\n"
+	_, err = masterConn.Write([]byte(replConfCapaCmd))
+	if err != nil {
+		log.Fatalf("Failed to send REPLCONF capa psync2 command: %v", err)
+	}
+
+	_, err = masterConn.Read(buffer)
+	if err != nil || !strings.Contains(string(buffer), "+OK\r\n") {
+		log.Fatalf("Failed to receive OK response for REPLCONF listening-port command")
 	}
 
 	fmt.Printf("Received response from master: %s\n", string(buffer[:n]))
