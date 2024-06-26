@@ -157,6 +157,9 @@ func handleConnection(conn net.Conn) {
 				}
 			case "REPLCONF":
 				conn.Write(codec.OK())
+			case "PSYNC":
+				response := fmt.Sprintf("+FULLRESYNC %s 0\r\n",masterReplID)
+				conn.Write([]byte(response))
 			default:
 				conn.Write([]byte("-Error: Unknown command\r\n"))
 			}
@@ -209,6 +212,13 @@ func connectToMasterAndReplicate() {
 	if err != nil || !strings.Contains(string(buffer), "+OK\r\n") {
 		log.Fatalf("Failed to receive OK response for REPLCONF listening-port command")
 	}
+
+	pysncCommand := "*3\r\n$5\r\nPSYNC\r\n$1\r\n?\r\n$2\r\n-1\r\n"
+	_, err = masterConn.Write([]byte(pysncCommand))
+	if err != nil || !strings.Contains(string(buffer), "+OK\r\n") {
+		log.Fatalf("Failed to receive OK response for PSYNC command")
+	}
+
 
 	fmt.Printf("Received response from master: %s\n", string(buffer[:n]))
 }
