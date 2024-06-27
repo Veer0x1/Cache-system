@@ -24,7 +24,6 @@ var (
 	store            = make(map[string]StoredData)
 	masterPort       = "6379"
 	masterHost       = "localhost"
-	// storeMutex       = sync.RWMutex{} // Mutex to protect the store map
 )
 
 type StoredData struct {
@@ -32,7 +31,8 @@ type StoredData struct {
 	ExpireAt int64
 }
 
-func startServer(port string) {
+
+func startServer(port string,replicaManager *ReplicaManager) {
 	l, err := net.Listen("tcp", fmt.Sprintf(":%s", port))
 	if err != nil {
 		fmt.Println("Failed to bind the port 6379")
@@ -47,18 +47,18 @@ func startServer(port string) {
 			os.Exit(1)
 		}
 
-		go handleConnection(conn)
+		go handleConnection(&conn,replicaManager)
 	}
 }
 
-func handleConnection(conn net.Conn) {
-	defer conn.Close()
+func handleConnection(conn *net.Conn,replicaManager *ReplicaManager) {
+	defer (*conn).Close()
 
-	conn.SetReadDeadline(time.Now().Add(5 * time.Minute))
+	// conn.SetReadDeadline(time.Now().Add(5 * time.Minute))
 
 	for {
 		buffer := make([]byte, 1024)
-		n, err := conn.Read(buffer)
+		n, err := (*conn).Read(buffer)
 		if err != nil {
 			if err != io.EOF {
 				fmt.Println("Error reading:", err)
@@ -85,15 +85,15 @@ func handleConnection(conn net.Conn) {
 
 			switch strings.ToUpper(parts[0]) {
 			case "PING":
-				conn.Write([]byte("+PONG\r\n"))
+				(*conn).Write([]byte("+PONG\r\n"))
 			case "ECHO":
 				if len(parts) > 1 {
 					message := strings.Join(parts[1:], " ")
 					response := fmt.Sprintf("$%d\r\n%s\r\n", len(message), message)
 
-					conn.Write([]byte(response))
+					(*conn).Write([]byte(response))
 				} else {
-					conn.Write([]byte("-Error: ECHO command requires an argument\r\n"))
+					(*conn).Write([]byte("-Error: ECHO command requires an argument\r\n"))
 				}
 			case "SET":
 				if len(parts) >= 3 {
@@ -122,9 +122,16 @@ func handleConnection(conn net.Conn) {
 
 					// Store the key-value with optional expiry.
 					store[key] = StoredData{Data: value, ExpireAt: expiry}
-					conn.Write([]byte("+OK\r\n"))
+					(*conn).Write([]byte("+OK\r\n"))
+
+					respCommand := fmt.Sprintf("*%d\r\n", len(parts))
+					for _, part := range parts {
+						respCommand += fmt.Sprintf("$%d\r\n%s\r\n", len(part), part)
+					}
+
+					replicaManager.SendUpdateToReplicas(respCommand)
 				} else {
-					conn.Write([]byte("-Error: SET command requires at least a key and a value\r\n"))
+					(*conn).Write([]byte("-Error: SET command requires at least a key and a value\r\n"))
 				}
 			case "GET":
 				if len(parts) == 2 {
@@ -134,15 +141,15 @@ func handleConnection(conn net.Conn) {
 						// Check if the key has expired.
 						if valueWithExpiry.ExpireAt != 0 && time.Now().UnixNano()/1e6 > valueWithExpiry.ExpireAt {
 							delete(store, key)            // Remove expired key.
-							conn.Write([]byte("$-1\r\n")) // Return null bulk string.
+							(*conn).Write([]byte("$-1\r\n")) // Return null bulk string.
 						} else {
-							conn.Write(codec.EncodeBulkString(valueWithExpiry.Data))
+							(*conn).Write(codec.EncodeBulkString(valueWithExpiry.Data))
 						}
 					} else {
-						conn.Write([]byte("$-1\r\n"))
+						(*conn).Write([]byte("$-1\r\n"))
 					}
 				} else {
-					conn.Write(codec.ErrorResponse("GET command require a key"))
+					(*conn).Write(codec.ErrorResponse("GET command require a key"))
 				}
 			case "INFO":
 				if len(parts) == 2 && parts[1] == "replication" {
@@ -151,16 +158,38 @@ func handleConnection(conn net.Conn) {
 						{Key: "master_replid", Value: masterReplID},
 						{Key: "master_repl_offset", Value: masterReplOffset},
 					}
-					conn.Write(codec.EncodeMultipleBulkStrings(infoFields))
+					(*conn).Write(codec.EncodeMultipleBulkStrings(infoFields))
 				} else {
 					// Optionally handle other sections or provide a generic response.
-					conn.Write(codec.ErrorResponse("Unsupported INFO section"))
+					(*conn).Write(codec.ErrorResponse("Unsupported INFO section"))
 				}
 			case "REPLCONF":
-				conn.Write(codec.OK())
+				if len(parts) < 2 {
+					(*conn).Write(codec.ErrorResponse("Not enough arguments for REPLCONF"))
+					break
+				}
+				switch parts[1] {
+				case "listening-port":
+					
+					
+			
+					(*conn).Write(codec.OK())
+				case "capa":
+					if len(parts) > 2 && parts[2] == "psync2" {
+						(*conn).Write(codec.OK())
+					} else {
+						(*conn).Write(codec.ErrorResponse("Unsupported REPLCONF capa option"))
+					}
+				default:
+					(*conn).Write(codec.ErrorResponse("Unsupported REPLCONF option"))
+				}
 			case "PSYNC":
+				replicaPort := parts[2]
+				remoteIP := (*conn).RemoteAddr().String()
+				replicaManager.AddReplica(remoteIP, replicaPort, conn)
+
 				response := fmt.Sprintf("+FULLRESYNC %s 0\r\n", masterReplID)
-				_, err := conn.Write([]byte(response))
+				_, err := (*conn).Write([]byte(response))
 				if err != nil {
 					log.Fatalf("Failed to send FULLRESYNC response: %v", err)
 				}
@@ -175,16 +204,16 @@ func handleConnection(conn net.Conn) {
 				// Send the encoded empty RDB file
 				rdbLength := len(rdbBytes)
 				rdbHeader := fmt.Sprintf("$%d\r\n", rdbLength)
-				_, err = conn.Write([]byte(rdbHeader))
+				_, err =(*conn).Write([]byte(rdbHeader))
 				if err != nil {
 					log.Fatalf("Failed to send RDB file header: %v", err)
 				}
-				_, err = conn.Write(rdbBytes)
+				_, err = (*conn).Write(rdbBytes)
 				if err != nil {
 					log.Fatalf("Failed to send RDB file contents: %v", err)
 				}
 			default:
-				conn.Write([]byte("-Error: Unknown command\r\n"))
+				(*conn).Write([]byte("-Error: Unknown command\r\n"))
 			}
 		}
 	}
@@ -246,6 +275,8 @@ func connectToMasterAndReplicate() {
 
 func main() {
 	flag.Parse()
+
+	replicaManager := NewReplicaManager()
 	if *replicaOf != "" {
 		serverRole = "slave"
 		formattedReplicaOf := strings.Replace(*replicaOf, " ", ":", 1)
@@ -254,8 +285,7 @@ func main() {
 		if err != nil {
 			log.Fatalf("Failed to parse master address '%s' : %v", *replicaOf, err)
 		}
-
 		go connectToMasterAndReplicate()
 	}
-	startServer(*port)
+	startServer(*port,replicaManager)
 }

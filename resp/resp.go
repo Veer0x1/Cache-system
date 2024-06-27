@@ -110,3 +110,21 @@ func (codec *RESPCodec) EncodeMultipleBulkStrings(pairs []KeyValuePair) ([]byte)
     // Encode the entire info string as a bulk string
     return codec.EncodeBulkString(infoString)
 }
+
+func (codec *RESPCodec) EncodeCommand(command string, args []string) []byte {
+	var respParts []string
+
+	// Add the command and its arguments to the parts slice
+	respParts = append(respParts, command)
+	respParts = append(respParts, args...)
+
+	// Start building the RESP command with the array prefix and the number of elements
+	respString := fmt.Sprintf("*%d\r\n", len(respParts))
+
+	// Encode each part of the command as a bulk string
+	for _, part := range respParts {
+		respString += fmt.Sprintf("$%d\r\n%s\r\n", len(part), part)
+	}
+
+	return []byte(respString)
+}

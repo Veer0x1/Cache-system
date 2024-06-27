@@ -10,7 +10,8 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	go startServer("6379")
+	ReplicaManager := NewReplicaManager()
+	go startServer("6379", ReplicaManager)
 	// Give the server time to start
 	time.Sleep(time.Second)
 
