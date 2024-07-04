@@ -19,7 +19,7 @@ func main() {
 
 	l, err := net.Listen("tcp", fmt.Sprintf(":%d", serverState.Port))
 	if err != nil {
-		fmt.Println("Failed to bind the port 6379")
+		fmt.Println("Failed to bind the port ",serverState.Port)
 		os.Exit(1)
 	}
 	defer l.Close()
