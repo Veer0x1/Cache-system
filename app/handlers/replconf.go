@@ -62,6 +62,10 @@ func sendAck(conn net.Conn, bytesOffset int) {
 		fmt.Println("Failed to encode ACK response: ", err)
 		return
 	}
+
+	// print response bytes
+	fmt.Printf("Sending ACK response: %q\n", bytes)
+
 	_, err = conn.Write(bytes)
 	if err != nil {
 		fmt.Println("Failed to write response ACK response to master: ", err)
